@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="color-scheme" content="dark"/>
+  <title>FollowLens | Local follow intelligence</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="logo" aria-hidden="true">◎</div>
+      <div><div class="eyebrow">LOCAL INTELLIGENCE / V2.0</div><h1>FollowLens<span class="accent">.</span></h1><p>Private Instagram follow tracking, with evidence-aware snapshots.</p></div>
+      <a class="source" href="https://github.com/sangtrx/followlens" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+    </header>
+    <section class="intro"><div><span class="pill">LOCAL ONLY</span><span class="pill outline">NO HIDDEN API</span><span class="pill outline">NO SERVER</span></div><p>Open your Instagram profile and click the extension icon to start a Smart Scan. First run scans both lists; subsequent runs refresh followers only unless you select Full Scan.</p></section>
+    <div class="notice" id="notice" role="status" hidden></div>
+    <section class="toolbar panel">
+      <label for="ownerSelect">Profile</label><select id="ownerSelect"><option value="">No saved profiles</option></select>
+      <label for="scanSelect">History</label><select id="scanSelect"><option value="">Latest</option></select>
+      <a id="instagramLink" class="action" href="https://www.instagram.com/" target="_blank" rel="noopener noreferrer">Open Instagram ↗</a>
+    </section>
+    <section class="metrics" aria-label="Overview">
+      <article class="metric"><span>Followers</span><strong id="followersCount">--</strong><small id="followersDate">No snapshot</small></article>
+      <article class="metric"><span>Following</span><strong id="followingCount">--</strong><small id="followingDate">Not available</small></article>
+      <article class="metric"><span>Not following back</span><strong id="nonmutualCount">--</strong><small>Using last Following snapshot</small></article>
+      <article class="metric"><span>Missing since prior scan</span><strong id="lostCount">--</strong><small>Possible unfollows, not proof</small></article>
+    </section>
+    <section class="panel report"><div class="reportHeader"><div><h2>Relationship explorer</h2><p id="evidence">Waiting for first scan.</p></div><button id="csvBtn" class="action" disabled>Export visible CSV ↓</button></div>
+      <div class="tabs" role="tablist" aria-label="Relationship filters">
+        <button class="tab active" data-tab="notFollowingBack" role="tab" aria-selected="true">Not following back <span id="count-notFollowingBack">0</span></button>
+        <button class="tab" data-tab="lost" role="tab" aria-selected="false">Missing <span id="count-lost">0</span></button>
+        <button class="tab" data-tab="gained" role="tab" aria-selected="false">New <span id="count-gained">0</span></button>
+        <button class="tab" data-tab="youDontFollowBack" role="tab" aria-selected="false">You don't follow <span id="count-youDontFollowBack">0</span></button>
+        <button class="tab" data-tab="mutual" role="tab" aria-selected="false">Mutual <span id="count-mutual">0</span></button>
+      </div>
+      <div class="searchrow"><input type="search" id="query" placeholder="Search usernames" aria-label="Search usernames"/><span id="visibleCount"></span></div>
+      <p class="note" id="listNote">Accounts you follow who are not in your latest followers list.</p>
+      <div class="accounts" id="accounts"></div><button id="more" class="action more" hidden>Show 100 more</button>
+    </section>
+    <section class="bottomGrid">
+      <article class="panel setting"><h2>Optional Auto Watch</h2><p>On a visible visit to your Instagram profile, attempt at most one Smart Scan per 24 hours. This requires an additional Instagram site permission. It is not a background 24/7 service.</p>
+        <label class="toggle"><input id="watch" type="checkbox"/> <span>Enable on-visit scans</span></label><small>Auto Watch may trigger Instagram requests by scrolling its own UI. It cannot guarantee zero account risk.</small>
+      </article>
+      <article class="panel setting"><h2>Official export fallback</h2><p>Import Instagram JSON/ZIP exports in chronological order (oldest first). Their completeness cannot be independently verified. Export history never becomes a confirmed unfollow notification.</p>
+        <div class="importRow"><input id="importOwner" type="text" placeholder="Instagram username" aria-label="Profile for import"/><button id="importBtn" class="action">Import ZIP / JSON</button><input id="importFile" type="file" accept=".zip,.json,application/zip,application/json" multiple hidden/></div>
+      </article>
+    </section>
+    <section class="foot"><p><strong>Important:</strong> A missing username does not prove someone unfollowed. Username changes, account deactivation, blocked access, incomplete exports and UI changes can all affect results.</p><button id="clear" class="danger">Delete selected profile history</button></section>
+  </main>
+  <script src="core.js"></script><script src="db.js"></script><script type="module" src="dashboard.js"></script>
+</body>
+</html>
