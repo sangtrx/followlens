@@ -5,14 +5,16 @@ from playwright.async_api import async_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / 'extension' / 'capture.js').read_text(encoding='utf-8')
-SCRIPT = SCRIPT.replace('const PAUSE_MS = 700;', 'const PAUSE_MS = 30;')
+SCRIPT = SCRIPT.replace('const MIN_PACE_MS = 340;', 'const MIN_PACE_MS = 25;')
+SCRIPT = SCRIPT.replace('const MAX_IDLE_WAIT_MS = 1400;', 'const MAX_IDLE_WAIT_MS = 75;')
 SCRIPT = SCRIPT.replace("location.pathname.split('/').filter(Boolean)", "['testowner']")
 SCRIPT = SCRIPT.replace("!['instagram.com', 'www.instagram.com'].includes(location.hostname)", "false")
 SCRIPT = SCRIPT.replace("location.origin", "'https://www.instagram.com'")
 SCRIPT = SCRIPT.replace('await sleep(750);', 'await sleep(10);')
 SCRIPT = SCRIPT.replace('await sleep(350);', 'await sleep(12);')
 SCRIPT = SCRIPT.replace('await sleep(400);', 'await sleep(15);')
-SCRIPT = SCRIPT.replace('setTimeout(finish, 1800)', 'setTimeout(finish, 70)')
+SCRIPT = SCRIPT.replace('waitDialog(null, 4300)', 'waitDialog(null, 220)')
+
 MOCK = r'''<!doctype html><html><style>
 .roll {height:130px;overflow-y:auto;width:300px;}.canvas{position:relative}.person{position:absolute;left:0;height:28px}
 [role=dialog]{width:350px;border:1px solid #555}
@@ -48,9 +50,21 @@ MOCK_INNER = MOCK_STATS.replace(
     '<span>17</span> following</li>', '<span>17</span> <span id="followingTrigger">following</span></li>'
 ).replace("document.querySelector('#'+kind+'Stat')", "document.querySelector('#'+kind+'Trigger')")
 
-async def run_case(browser, previous=False, wrong_count=False, stats=False, inner=False, screenshot_counts=False):
+async def run_case(browser, previous=False, wrong_count=False, stats=False, inner=False, screenshot_counts=False, long_list=False, stalled=False):
     page=await browser.new_page()
     await page.set_content(MOCK_INNER if inner else MOCK_STATS if stats else MOCK)
+    if long_list:
+        await page.evaluate("""() => {
+          window.__fixture.followers = Array.from({length: 235}, (_,i) => 'fuser'+i);
+          window.__fixture.following = Array.from({length: 63}, (_,i) => 'fuser'+(i+175));
+          document.querySelector('#followersLink').textContent='235 followers';
+          document.querySelector('#followingLink').textContent='63 following';
+        }""")
+    if stalled:
+        await page.evaluate("""() => {
+          window.__fixture.followers=Array.from({length: 80}, (_,i) => 'fuser'+i);
+          document.querySelector('#followersLink').textContent='90 followers';
+        }""")
     if screenshot_counts:
         await page.evaluate("""() => {
           document.querySelector('#followersStat span').textContent='1,769';
@@ -119,4 +133,23 @@ async def main():
         print('PASS exact screenshot counts: parses 1,769 / 173 and refuses mismatched snapshot')
         await browser.close()
 
-if __name__=='__main__': asyncio.run(main())
+async def stress():
+    async with async_playwright() as p:
+        browser=await p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
+        import time
+        began = time.monotonic()
+        status, sent, opened=await run_case(browser,long_list=True)
+        elapsed = time.monotonic()-began
+        assert 'Đã lưu mốc' in status, status
+        scan=next(x for x in sent if x['type']=='SAVE_SCAN')
+        assert len(scan['followers']) == 235 and len(scan['following']) == 63
+        print(f'PASS long virtualized list: 235+63 users, {elapsed:.2f}s in mocked Chromium')
+        status, sent, opened=await run_case(browser,stalled=True)
+        assert 'chưa xác thực đầy đủ' in status.lower(), status
+        assert not any(x['type']=='SAVE_SCAN' for x in sent)
+        print('PASS stalled/incomplete list: refuses persistence')
+        await browser.close()
+
+if __name__=='__main__':
+    import sys
+    asyncio.run(stress() if '--long' in sys.argv else main())

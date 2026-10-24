@@ -33,7 +33,7 @@ It works locally inside your browser. No backend, analytics, proxy, credential c
 5. Click the FollowLens toolbar icon once to start scanning. The on-page panel shows progress and a **Stop** button.
 6. Open **Dashboard** from the panel to inspect relationships and timeline.
 
-The first Smart Scan opens and scrolls both Instagram lists on your behalf. Later Smart Scans scan only Followers; press **Full Scan** when you want the Following list refreshed. The scan works only when Instagram renders recognizable dialogs; layout changes can require updates. Version 2.0.2 recognizes link, button, list-item, and nested-label variants of the profile statistics (fixture-tested, not verified on every live Instagram layout).
+The first Smart Scan opens and scrolls both Instagram lists on your behalf. Later Smart Scans scan only Followers; press **Full Scan** when you want the Following list refreshed. The scan works only when Instagram renders recognizable dialogs; layout changes can require updates. Version 2.0.3 recognizes link, button, list-item, and nested-label variants of profile statistics and uses adaptive DOM-change pacing to avoid an unnecessary 2.5-second delay on almost every scroll. The new pacing is tested against mocked Chromium lists, not benchmarked on a live Instagram account.
 
 To import official archives instead, open the dashboard, enter the correct username, and import exports **oldest first**. ZIP parsing remains local. Do not combine separate accounts or unrelated time ranges.
 
@@ -67,7 +67,7 @@ See [Architecture](docs/ARCHITECTURE.md), [Security & Privacy](SECURITY.md), and
 - Partial scans, UI breakage, login checkpoints and very large losses cannot replace healthy history.
 - No authentication tokens, Instagram cookies, private endpoints, external trackers or dependency downloads at runtime.
 - Isolated data stores per username, with user-controlled deletion.
-- `npm run check` verifies syntax and 11 pure unit cases. `python tests/auto-scan-smoke.py` covers 7 mocked Chromium auto-scan scenarios, including profile statistics rendered as clickable text rather than links.
+- `npm run check` verifies syntax and 11 pure unit cases. `python tests/auto-scan-smoke.py` covers 7 mocked Chromium auto-scan scenarios; `python tests/auto-scan-smoke.py --long` adds a virtualized-list stress case and incomplete-snapshot rejection, including profile statistics rendered as clickable text rather than links.
 
 The tests **do not** demonstrate compatibility with every live Instagram account, UI language or follower size. The project has not been benchmarked against a real account in this environment.
 
@@ -84,6 +84,7 @@ Requires Node.js 20+ for tests; Chromium and `playwright` Python package for bro
 ```bash
 npm run check
 python tests/auto-scan-smoke.py
+python tests/auto-scan-smoke.py --long
 ```
 
 No build step or `npm install` is required to load the extension. It uses Chrome Manifest V3 and vanilla JavaScript. No bundled minified dependencies.

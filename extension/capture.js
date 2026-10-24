@@ -20,8 +20,9 @@
 
   const MAX_USERS = 75000;
   const MAX_STEPS = 5000;
-  const PAUSE_MS = 700;
+  const MIN_PACE_MS = 340; // Do not scroll again before Instagram has had time to render.
   const LOAD_TIMEOUT_MS = 16000;
+  const MAX_IDLE_WAIT_MS = 1400; // Slow/unchanged view: wait, then verify; never assume complete.
   const MAX_SCAN_MS = 12 * 60 * 1000;
   const DIAG = { followers: 'Followers', following: 'Following' };
   const data = { followers: new Set(), following: new Set() };
@@ -32,6 +33,7 @@
   let closed = false;
   let resultSaved = false;
   let scanningFull = false;
+  let cachedScroller = null;
 
   const host = document.createElement('div');
   host.id = 'followlens-auto-host';
@@ -213,37 +215,64 @@
     return data[kind].size - before;
   }
   function scrollbox(dialog) {
+    if (cachedScroller?.isConnected && dialog.contains(cachedScroller) &&
+        cachedScroller.scrollHeight > cachedScroller.clientHeight + 12) return cachedScroller;
     const options = [dialog, ...dialog.querySelectorAll('*')].filter(node => {
       if (!visible(node) || node.clientHeight < 48) return false;
       return node.scrollHeight > node.clientHeight + 12;
     });
     if (!options.length) return null;
-    return options.map(node => {
+    cachedScroller = options.map(node => {
       const overflow = getComputedStyle(node).overflowY;
       const links = node.querySelectorAll('a[href]').length;
       const scrollRange = node.scrollHeight - node.clientHeight;
       const score = (/auto|scroll/.test(overflow) ? 1000 : 0) + (links ? 120 : 0) + Math.min(scrollRange / 100, 60) - Math.max(0, node.clientHeight - 900) / 100;
       return { node, score };
     }).sort((a,b) => b.score - a.score)[0].node;
+    return cachedScroller;
   }
   function atEnd(node) { return node.scrollTop + node.clientHeight >= node.scrollHeight - 9; }
-  // Wait for Instagram's rendered DOM to change, not a hard-coded long delay.
-  function waitForContentChange(dialog, scroller, previousCount, previousHeight) {
+  // Compare rendered IDs with the previous VISIBLE set, never the cumulative
+  // total. v2.0.2 compared visible count against all users captured so far,
+  // and consequently hit a 1.8-second timeout at almost every scroll step.
+  function renderedNames(dialog) {
+    const names = new Set();
+    for (const link of dialog.querySelectorAll('a[href]')) {
+      const username = usernameFromAnchor(link);
+      if (username) names.add(username);
+    }
+    return names;
+  }
+  function waitForContentChange(dialog, scroller, beforeVisible, previousHeight, nearEnd) {
+    const started = Date.now();
+    const idleTimeout = nearEnd ? 700 : MAX_IDLE_WAIT_MS;
     return new Promise(resolve => {
-      let done = false;
-      const finish = () => { if (done) return; done = true; observer.disconnect(); clearTimeout(timer); resolve(); };
+      let done = false, paceTimer = null;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        observer.disconnect();
+        clearTimeout(paceTimer);
+        clearTimeout(deadlineTimer);
+        resolve();
+      };
       const changed = () => {
         if ((scroller?.scrollHeight ?? 0) !== previousHeight) return true;
-        // Virtualized rows can replace existing links while preserving row count.
-        const names = new Set([...dialog.querySelectorAll('a[href]')].map(a => usernameFromAnchor(a)).filter(Boolean));
-        return names.size > previousCount;
+        for (const name of renderedNames(dialog)) if (!beforeVisible.has(name)) return true;
+        return false;
       };
-      const observer = new MutationObserver(() => { if (changed()) finish(); });
-      observer.observe(dialog, {childList:true, subtree:true});
-      const timer = setTimeout(finish, 1800);
-      // Minimum pacing still applies even if mutation happens immediately.
-      setTimeout(() => { if (!done && changed()) finish(); }, PAUSE_MS);
-    }).then(() => sleep(PAUSE_MS));
+      const ready = () => {
+        if (!changed()) return;
+        const remaining = MIN_PACE_MS - (Date.now() - started);
+        if (remaining <= 0) finish();
+        else if (!paceTimer) paceTimer = setTimeout(finish, remaining);
+      };
+      const observer = new MutationObserver(ready);
+      observer.observe(dialog, {childList: true, subtree: true, attributes:true, attributeFilter:['href']});
+      const deadlineTimer = setTimeout(finish, Math.max(MIN_PACE_MS, idleTimeout));
+      // The DOM might have rendered synchronously before observer registration.
+      ready();
+    });
   }
   async function collectToEnd(kind, dialog) {
     let steady = 0;
@@ -251,6 +280,8 @@
     let lastHeight = -1;
     let noScrollCount = 0;
     const began = Date.now();
+    let stepsWithoutNewNames = 0;
+    cachedScroller = null;
     for (let step = 0; step < MAX_STEPS; step++) {
       if (Date.now() - began > MAX_SCAN_MS) throw new Error('Scan time limit exceeded; data was not saved.');
       check();
@@ -258,17 +289,24 @@
       const node = scrollbox(dialog);
       const count = data[kind].size;
       const height = node?.scrollHeight ?? 0;
+      const beforeVisible = renderedNames(dialog);
       const end = !node || atEnd(node);
       if (end && lastSize === count && lastHeight === height) steady++;
       else steady = 0;
-      status(`Đang quét ${DIAG[kind]}: ${count.toLocaleString('vi-VN')} tài khoản\nCuộn ${step+1}, tự dừng khi xác nhận cuối danh sách.`);
+      const target = expected[kind]?.value;
+      status(`Đang quét ${DIAG[kind]}: ${count.toLocaleString('vi-VN')}${target != null ? '/' + target.toLocaleString('vi-VN') : ''} tài khoản\nCuộn ${step+1}, chờ danh sách tải xong trước khi cuộn tiếp.`);
       if (steady >= 4) {
         if (count === 0 && expected[kind]?.value !== 0) throw new Error(`${DIAG[kind]} trống hoặc chưa tải được.`);
         return;
       }
       if (node) {
         const beforeTop = node.scrollTop;
-        node.scrollTop = Math.min(node.scrollHeight, beforeTop + Math.max(140, Math.floor(node.clientHeight * 0.72)));
+        // If all exact-count profiles are already rendered, jump only to
+        // verify the bottom. Otherwise use overlapping viewports so virtual
+        // rows are not skipped while Instagram loads additional batches.
+        const allCollected = expected[kind]?.exact && count === expected[kind].value;
+        node.scrollTop = allCollected ? node.scrollHeight :
+          Math.min(node.scrollHeight, beforeTop + Math.max(140, Math.floor(node.clientHeight * 0.78)));
         if (node.scrollTop === beforeTop && !end) {
           noScrollCount++;
           if (noScrollCount >= 6) throw new Error(`Không cuộn được ${DIAG[kind]}. Dừng để tránh dữ liệu thiếu.`);
@@ -276,8 +314,13 @@
       }
       lastSize = count;
       lastHeight = height;
-      await waitForContentChange(dialog, node, count, height);
-      collect(kind, dialog);
+      await waitForContentChange(dialog, node, beforeVisible, height, end);
+      check();
+      const added = collect(kind, dialog);
+      stepsWithoutNewNames = added ? 0 : stepsWithoutNewNames + 1;
+      if (stepsWithoutNewNames > 24 && !atEnd(node) && data[kind].size !== expected[kind]?.value) {
+        throw new Error(`${DIAG[kind]} ngừng cung cấp dữ liệu mới. Dừng an toàn, không lưu snapshot thiếu.`);
+      }
     }
     throw new Error('Đã đạt giới hạn số lần cuộn. Chưa xác thực đủ dữ liệu.');
   }
@@ -326,6 +369,7 @@
     }
     if (!dialog) throw new Error(`Đã tìm thấy mục ${DIAG[kind]} nhưng Instagram không mở danh sách. Không lưu snapshot thiếu.`);
     currentDialog = dialog;
+    cachedScroller = null;
     await collectToEnd(kind, currentDialog);
     const got = data[kind].size;
     const estimate = expected[kind];
@@ -359,6 +403,7 @@
     if (running) return;
     cancelled = false; resultSaved = false;
     data.followers.clear(); data.following.clear();
+    cachedScroller = null;
     expected = { followers: null, following: null };
     updateCounters();
     running = true;
