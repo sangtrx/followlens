@@ -33,7 +33,7 @@ It works locally inside your browser. No backend, analytics, proxy, credential c
 5. Click the FollowLens toolbar icon once to start scanning. The on-page panel shows progress and a **Stop** button.
 6. Open **Dashboard** from the panel to inspect relationships and timeline.
 
-The first Smart Scan opens and scrolls both Instagram lists on your behalf. Later Smart Scans scan only Followers; press **Full Scan** when you want the Following list refreshed. The scan works only when Instagram renders the expected dialogs; layout changes can require updates.
+The first Smart Scan opens and scrolls both Instagram lists on your behalf. Later Smart Scans scan only Followers; press **Full Scan** when you want the Following list refreshed. The scan works only when Instagram renders recognizable dialogs; layout changes can require updates. Version 2.0.2 recognizes link, button, list-item, and nested-label variants of the profile statistics (fixture-tested, not verified on every live Instagram layout).
 
 To import official archives instead, open the dashboard, enter the correct username, and import exports **oldest first**. ZIP parsing remains local. Do not combine separate accounts or unrelated time ranges.
 
@@ -67,9 +67,15 @@ See [Architecture](docs/ARCHITECTURE.md), [Security & Privacy](SECURITY.md), and
 - Partial scans, UI breakage, login checkpoints and very large losses cannot replace healthy history.
 - No authentication tokens, Instagram cookies, private endpoints, external trackers or dependency downloads at runtime.
 - Isolated data stores per username, with user-controlled deletion.
-- `npm run check` verifies syntax and 11 pure unit cases. `python tests/auto-scan-smoke.py` covers 3 mocked Chromium auto-scan scenarios.
+- `npm run check` verifies syntax and 11 pure unit cases. `python tests/auto-scan-smoke.py` covers 7 mocked Chromium auto-scan scenarios, including profile statistics rendered as clickable text rather than links.
 
 The tests **do not** demonstrate compatibility with every live Instagram account, UI language or follower size. The project has not been benchmarked against a real account in this environment.
+
+## Troubleshooting
+
+- **"Followers button not found" on Instagram:** Update to **v2.0.2** and reload the extension from `chrome://extensions`. The original selector only handled anchors and buttons. The new selector also checks clickable text/list-item statistics on the visible profile header.
+- **Found the statistic but failed to open the list:** Instagram might use another event target or have changed its dialog markup. Stop scanning; the old snapshot remains intact. Please open a GitHub issue with the page UI language, extension version, redacted DOM or a screenshot. Do not include cookies, authentication tokens, or private follower lists.
+- **Collected count does not match displayed count:** The extension intentionally refuses to save. Avoid repeated rapid retries and use Instagram's official export to cross-check.
 
 ## Development
 

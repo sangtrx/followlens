@@ -91,19 +91,51 @@
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const visible = node => !!node && node.isConnected && node.getClientRects().length > 0;
 
-  function profileLink(kind) {
+  // Instagram profile stats can be anchors, buttons, or clickable <li>/<span>
+  // groups. Prefer URLs, then scoped text stats in the visible profile header.
+  function profileTargets(kind) {
     const wanted = '/' + owner + '/' + kind + '/';
-    const anchors = Array.from(document.querySelectorAll('a[href]')).filter(a => {
+    const word = kind === 'followers' ? /\bfollowers\b/i : /\bfollowing\b/i;
+    const other = kind === 'followers' ? /\bfollowing\b/i : /\bfollowers\b/i;
+    const anchors = Array.from(document.querySelectorAll('header a[href], main a[href]')).filter(a => {
       if (!visible(a) || host.contains(a)) return false;
       try {
         const url = new URL(a.getAttribute('href'), location.origin);
-        return url.pathname.toLowerCase().replace(/\/?$/, '/') === wanted;
+        return ['instagram.com', 'www.instagram.com'].includes(url.hostname) &&
+          url.pathname.toLowerCase().replace(/\/?$/, '/') === wanted;
       } catch { return false; }
     });
-    if (anchors.length) return anchors[0];
-    // Fallback when Instagram renders counts as buttons rather than links.
-    return Array.from(document.querySelectorAll('header button, main button, header [role="button"], main [role="button"]'))
-      .find(btn => visible(btn) && !btn.closest('[role="dialog"]') && new RegExp('\\b' + kind + '\\b', 'i').test((btn.textContent || '') + ' ' + (btn.getAttribute('aria-label') || ''))) || null;
+    const scored = [];
+    const seen = new Set(anchors);
+    const roots = Array.from(document.querySelectorAll('header, main header'));
+    // A small set of layouts nests profile statistics directly under main.
+    if (!roots.length) roots.push(...document.querySelectorAll('main'));
+    for (const root of roots) {
+      for (const item of root.querySelectorAll('li, [role="button"], button, [tabindex], span, div')) {
+        if (!visible(item) || host.contains(item)) continue;
+        const value = (item.textContent || '').replace(/\s+/g, ' ').trim();
+        if (value.length > 90 || !word.test(value) || other.test(value)) continue;
+        // Try the row AND the visible label: sometimes React's click handler
+        // is attached to a child span rather than its ancestor list item.
+        const variants = [item.closest('li'), item.closest('[role="button"],button'), item].filter(Boolean);
+        for (const candidate of variants) {
+          if (!visible(candidate) || host.contains(candidate) || seen.has(candidate)) continue;
+          const label = (candidate.textContent || '').replace(/\s+/g, ' ').trim();
+          if (label.length > 90 || !word.test(label) || other.test(label)) continue;
+          const count = countFromLink(candidate, kind);
+          if (!count) continue;
+          seen.add(candidate);
+          let score = candidate.tagName === 'LI' ? 100 : 0;
+          if (candidate.matches('button, [role="button"], [tabindex]')) score += 80;
+          if (getComputedStyle(candidate).cursor === 'pointer') score += 50;
+          if (count.exact) score += 25;
+          score -= label.length / 10;
+          scored.push({node:candidate,score});
+        }
+      }
+    }
+    scored.sort((a,b) => b.score - a.score);
+    return [...anchors, ...scored.map(x => x.node)].filter((node,i,a) => a.indexOf(node) === i);
   }
   function parseCount(label) {
     // Exact labels: 1,234 / 1.234 / 1234. Abbreviated K/M counts are approximate.
@@ -123,10 +155,23 @@
   }
   function countFromLink(link, kind) {
     if (!link) return null;
-    const candidates = [link.getAttribute('aria-label'), link.querySelector('[title]')?.getAttribute('title'), link.getAttribute('title'), link.textContent];
-    const parsed = candidates.map(parseCount).filter(Boolean);
-    // Prefer exact full count if both abbreviated text and accessible full count exist.
-    return parsed.find(x => x.exact) || parsed[0] || null;
+    const contexts = [link, link.closest('li'), link.parentElement, link.parentElement?.parentElement]
+      .filter(Boolean);
+    const other = kind === 'followers' ? /\bfollowing\b/i : /\bfollowers\b/i;
+    for (const context of contexts) {
+      const content = (context.textContent || '').replace(/\s+/g, ' ').trim();
+      // Don't accidentally use the post count or another header statistic.
+      if (other.test(content) || content.length > 120) continue;
+      const labels = [
+        context.getAttribute('aria-label'),
+        context.getAttribute('title'),
+        context.querySelector('[title]')?.getAttribute('title'),
+        content
+      ].filter(Boolean);
+      const parsed = labels.map(parseCount).filter(Boolean);
+      if (parsed.length) return parsed.find(x => x.exact) || parsed[0];
+    }
+    return null;
   }
   function usernameFromAnchor(anchor) {
     const href = anchor.getAttribute('href');
@@ -145,8 +190,8 @@
     const dialogsNow = dialogs();
     return dialogsNow.reverse().find(d => d !== previous && d.querySelector('a[href]')) || dialogsNow.find(d => d.querySelector('a[href]')) || null;
   }
-  async function waitDialog(previous) {
-    const end = Date.now() + LOAD_TIMEOUT_MS;
+  async function waitDialog(previous, timeout = LOAD_TIMEOUT_MS) {
+    const end = Date.now() + timeout;
     while (Date.now() < end) {
       check();
       const dialog = findDialog(previous);
@@ -260,19 +305,30 @@
   }
   async function scanOne(kind) {
     status(`Đang mở ${DIAG[kind]}...`);
-    const link = profileLink(kind);
-    if (!link) throw new Error(`Không tìm thấy nút ${DIAG[kind]} trên profile. Giao diện Instagram có thể đã đổi.`);
-    expected[kind] = countFromLink(link, kind);
-    // Only use the existing Instagram UI; this triggers the website's normal loading behavior.
+    const targets = profileTargets(kind);
+    if (!targets.length) throw new Error(`Không tìm thấy mục ${DIAG[kind]} trên profile (kể cả dạng text/clickable li). Dữ liệu cũ được giữ nguyên.`);
+    expected[kind] = targets.map(t => countFromLink(t, kind)).find(Boolean) || null;
     const previous = findDialog();
     if (previous) await closeDialog(previous);
     check();
-    link.click();
-    currentDialog = await waitDialog(null);
+    let dialog = null;
+    // Try at most 3 independent UI targets, not API endpoints or extra pages.
+    for (const target of targets.slice(0, 3)) {
+      check();
+      if (!visible(target)) continue;
+      target.click();
+      try {
+        dialog = await waitDialog(null, 4300);
+        break;
+      } catch (error) {
+        if (!/Không nhận diện được danh sách/.test(String(error?.message))) throw error;
+      }
+    }
+    if (!dialog) throw new Error(`Đã tìm thấy mục ${DIAG[kind]} nhưng Instagram không mở danh sách. Không lưu snapshot thiếu.`);
+    currentDialog = dialog;
     await collectToEnd(kind, currentDialog);
     const got = data[kind].size;
     const estimate = expected[kind];
-    // Never certify abbreviated/estimated counts. False unfollows are worse than a failed scan.
     if (!estimate?.exact || got !== estimate.value) {
       throw new Error(`${DIAG[kind]}: thu được ${got}; số đếm ${estimate?.value ?? '?'}${estimate?.exact ? '' : ' (xấp xỉ)'}. Chưa xác thực đầy đủ, không lưu.`);
     }
