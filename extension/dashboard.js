@@ -95,7 +95,7 @@ function init(){
   $('watch').addEventListener('change',async e=>{e.target.disabled=true;try{await configureWatch(e.target.checked);}catch(err){e.target.checked=!e.target.checked;notice(err.message,true);}finally{e.target.disabled=false;}});
   $('importBtn').addEventListener('click',()=>$('importFile').click());
   $('importFile').addEventListener('change',async e=>{try{notice('Reading export locally...');await importExport([...e.target.files]);}catch(err){notice(err.message||'Import failed',true);}finally{e.target.value='';}});
-  $('clear').addEventListener('click',async()=>{if(!state.owner)return;if(!confirm(`Permanently delete all local history for @${state.owner}?`))return;try{await DB.clear(state.owner);notice('Local history deleted.');await refreshAccounts('');}catch(err){notice(err.message,true);}});
+  $('clear').addEventListener('click',async()=>{if(!state.owner)return;if(!confirm(`Permanently delete all local history for @${state.owner}?`))return;try{const deleted=state.owner;await DB.clear(deleted);const saved=await chrome.storage.local.get('watchOwners');await chrome.storage.local.set({watchOwners:(saved.watchOwners||[]).filter(x=>x!==deleted)});await chrome.storage.local.remove('watchLastAttempt:'+deleted);notice('Local history and Auto Watch eligibility deleted for @'+deleted+'.');await refreshAccounts('');}catch(err){notice(err.message,true);}});
 }
 async function start(){init();try{await DB.open();$('watch').checked=Boolean((await chrome.storage.local.get('watchEnabled')).watchEnabled);const preferred=new URLSearchParams(location.search).get('owner')||'';await refreshAccounts(preferred);}catch(err){notice('Storage unavailable: '+err.message,true);}}
 start();

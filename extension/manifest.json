@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "FollowLens | Private Instagram Follow Tracker",
   "short_name": "FollowLens",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "One-click Instagram follower/following scan with locally verified snapshot history. No hidden API or telemetry.",
   "minimum_chrome_version": "114",
   "permissions": ["storage", "activeTab", "scripting"],
