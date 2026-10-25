@@ -1,5 +1,7 @@
 # FollowLens
 
+> **Status update (2026-10-25):** Users reported that the experimental FollowLens v2.1 private API mode does not work with their live Instagram session. The existing MIT project remains available for DOM and official-export use, but that API path is unverified. For a separate source-based implementation using the original InstaSnap engine, see the GPL-3.0 fork [sangtrx/followlens-instasnap](https://github.com/sangtrx/followlens-instasnap). These projects have different licenses and browser extension IDs; histories are not automatically transferable. Neither automated method guarantees Instagram account safety.
+
 **A privacy-first, open-source Instagram follow tracker for Chrome.**
 
 FollowLens helps you answer three practical questions:
