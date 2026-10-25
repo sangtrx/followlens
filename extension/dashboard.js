@@ -39,7 +39,7 @@ function draw(){
   $('lostCount').textContent=fmt(result?.lost?.length);
   $('followersDate').textContent=selected ? date(selected.createdAt) : 'No snapshot';
   $('followingDate').textContent=follow ? 'Updated '+date(follow.createdAt) : 'Full Scan needed';
-  const evidence=selected ? (selected.source==='official-export' ? 'Imported export: completeness not independently verified.' : 'Live DOM: reached stable end and matched an exact displayed count. Not an independent completeness guarantee.') : 'Open Instagram and click the extension icon to scan.';
+  const evidence=selected ? (selected.source==='official-export' ? 'Imported export: completeness not independently verified.' : selected.source==='instagram-private-api' ? 'Experimental private API: pagination ended and matched displayed count. Not a guarantee of completeness or authorization.' : 'Live DOM: reached stable end and matched an exact displayed count. Not an independent completeness guarantee.') : 'Open Instagram and click the extension icon to scan.';
   $('evidence').textContent=evidence + (follow && selected?.createdAt>follow.createdAt?' Following is cached from an earlier scan.':'');
   for(const key of Object.keys(labels)) $('count-'+key).textContent=fmt(result?.[key]?.length ?? 0);
   for(const tab of document.querySelectorAll('.tab')){const active=tab.dataset.tab===state.tab;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));}

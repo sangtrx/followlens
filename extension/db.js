@@ -90,6 +90,12 @@
     if (!/^[a-z0-9._]{1,30}$/.test(owner)) throw new Error('Invalid profile');
     return append(owner, C.validateScan(payload), payload.full, 'instagram-dom', 'exact-visible-count-and-stable-scroll-end');
   }
+  async function saveFast(payload) {
+    const owner = String(payload.owner || '').toLowerCase();
+    if (!/^[a-z0-9._]{1,30}$/.test(owner)) throw new Error('Invalid profile');
+    return append(owner, C.validateScan(payload), payload.full,
+      'instagram-private-api', 'finished-pagination-and-exact-visible-count-not-independent-proof');
+  }
   async function importOfficial(owner, snapshot) {
     owner = String(owner || '').replace(/^@/, '').toLowerCase();
     if (!/^[a-z0-9._]{1,30}$/.test(owner)) throw new Error('Please enter a valid Instagram username');
@@ -112,5 +118,5 @@
     }
     await finished;
   }
-  root.FollowLensDB = Object.freeze({ open, records, summary, history, owners, save, importOfficial, clear, hydrate });
+  root.FollowLensDB = Object.freeze({ open, records, summary, history, owners, save, saveFast, importOfficial, clear, hydrate });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

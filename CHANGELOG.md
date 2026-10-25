@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.1.0 (2026-10-25) - Experimental no-scroll Fast API Scan
+
+- Explicit consent required every panel session, no dialog scrolling.
+- Read-only same-origin undocumented REST endpoints with browser-managed session.
+- Pacing, per-profile cooldown, hard page/size limits and no retries.
+- Strict fail-closed behavior on rate limits, auth errors, checkpoint, malformed pages and count mismatch.
+- DOM Scan, DOM-only Auto Watch, official JSON/ZIP import preserved.
+- Unit and mocked browser tests, no live Instagram session tested.
+
+
 ## v2.0.3 (2026-10-24) - Adaptive DOM scan pacing
 
 - Fix visible-window versus cumulative-total comparison, which forced nearly every scroll to wait through a timeout.

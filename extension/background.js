@@ -10,12 +10,16 @@ function profile(url) {
     return name && !RESERVED.has(name) ? name : null;
   } catch { return null; }
 }
-async function inject(tabId) {
-  await chrome.scripting.executeScript({target:{tabId}, files:['capture.js']});
+async function inject(tabId, automaticDOM=false) {
+  await chrome.scripting.executeScript({target:{tabId}, files:['fast-api.js','capture.js']});
+  if (automaticDOM) await chrome.scripting.executeScript({
+    target:{tabId},
+    func:()=>{ window.__followlens_auto_v2?.startDom?.(); }
+  });
 }
 chrome.action.onClicked.addListener(async tab => {
   try {
-    if (tab?.id && profile(tab.url)) return await inject(tab.id);
+    if (tab?.id && profile(tab.url)) return await inject(tab.id,false);
     await chrome.tabs.create({url:chrome.runtime.getURL('dashboard.html')});
   } catch (err) { console.warn('FollowLens injection failed:', err); }
 });
@@ -33,6 +37,28 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     switch (message?.type) {
       case 'GET_SUMMARY': return await FollowLensDB.summary(message.owner);
+      case 'FAST_SCAN_RESERVE': {
+        if (!sender.tab?.url || profile(sender.tab.url) !== message.owner)
+          throw new Error('Fast Scan is only available from the selected Instagram profile.');
+        const key = 'fastAttempts:' + message.owner;
+        const now = Date.now();
+        const stored = await chrome.storage.local.get(key);
+        const recent = (Array.isArray(stored[key]) ? stored[key] : [])
+          .filter(t => Number.isSafeInteger(t) && t > now - 86400000 && t <= now);
+        if (recent.length >= 2) throw new Error('Fast API limit: maximum 2 attempts in 24h per profile. Use DOM/export.');
+        if (recent.length && now - Math.max(...recent) < 3600000)
+          throw new Error('Fast API cooldown: wait at least 1 hour since the last attempt.');
+        await chrome.storage.local.set({[key]:[...recent,now]});
+        return {reserved:true};
+      }
+      case 'SAVE_FAST_SCAN': {
+        if (!sender.tab?.url || profile(sender.tab.url) !== message.owner)
+          throw new Error('Source profile mismatch');
+        const saved = await FollowLensDB.saveFast(message);
+        const stored = await chrome.storage.local.get('watchOwners');
+        await chrome.storage.local.set({watchOwners:Array.from(new Set([...(stored.watchOwners||[]),saved.owner]))});
+        return saved;
+      }
       case 'SAVE_SCAN': {
         if (!sender.tab?.url || profile(sender.tab.url) !== message.owner) throw new Error('Source profile mismatch');
         const saved = await FollowLensDB.save(message);
@@ -56,7 +82,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         const owner = sender.tab?.url && profile(sender.tab.url);
         if (!sender.tab?.id || !owner || owner !== message.owner) return {started:false};
         if (!(await chrome.storage.local.get('watchEnabled')).watchEnabled) return {started:false};
-        await inject(sender.tab.id);
+        await inject(sender.tab.id,true);
         return {started:true};
       }
       default: throw new Error('Unknown message');

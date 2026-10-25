@@ -10,4 +10,4 @@ Before a pull request:
 4. Never include your Instagram session, follower exports, private screenshots, browser tokens, or profile-specific datasets.
 5. Keep optional permissions optional, data local, and all network calls to Instagram under the user's own UI interactions.
 
-Changes adding private API scraping, CAPTCHA bypass, proxy evasion, or automatic follow/unfollow are outside the project's security model.
+Any private-API change must remain manually opted-in, read-only and bounded. CAPTCHA bypass, proxy evasion, rate-limit retries and automatic follow/unfollow remain outside the security model.

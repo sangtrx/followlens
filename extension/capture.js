@@ -1,7 +1,7 @@
 /**
  * FollowLens Auto Scan: one click on the extension icon, with a visible stop control.
  * Interacts ONLY with Instagram's rendered profile links and native dialog scrolling.
- * No fetch/XHR/internal endpoints, cookies, tokens, credentials, or follow/unfollow actions.
+ * DOM mode uses no fetch. Experimental Fast mode uses explicitly opted-in GET requests\n * to undocumented Instagram endpoints, but never reads/stores cookie or token values.
  * Scrolling can make Instagram itself load more data; automation is NOT zero-risk.
  */
 (() => {
@@ -33,6 +33,8 @@
   let closed = false;
   let resultSaved = false;
   let scanningFull = false;
+  let fastController = null;
+  let fastConsentGranted = false;
   let cachedScroller = null;
 
   const host = document.createElement('div');
@@ -59,6 +61,8 @@
     .btn { padding:9px 10px; border-radius:8px; border:1px solid #745b9e; background:#3c2c54; color:#f8f3ff; flex:1; }
     .btn.primary { background:#b891ff; color:#1e1127; font-weight:800; }
     .btn:disabled { opacity:.48; cursor:default; }
+    .risk { display:flex; gap:8px; align-items:flex-start; margin-top:10px; font-size:11px; color:#ffcfae; }
+    .risk input { margin-top:2px; accent-color:#ba90ff; }
   `;
   const panel = document.createElement('section');
   panel.className = 'panel';
@@ -70,6 +74,8 @@
     <div class="stats"><div class="stat"><small>Followers</small><strong id="followers">0</strong></div><div class="stat"><small>Following</small><strong id="following">0</strong></div></div>
     <div class="status" id="status" role="status" aria-live="polite">Sẵn sàng.</div>
     <div class="buttons"><button id="run" class="btn primary">Smart Scan</button><button id="full" class="btn">Full Scan</button><button id="stop" class="btn">Dừng</button></div>
+    <label class="risk"><input type="checkbox" id="fastConsent"> Tôi chủ động chấp nhận rủi ro API nội bộ Instagram (có thể bị hạn chế tài khoản). Không dùng chế độ này tự động.</label>
+    <div class="buttons"><button id="fast" class="btn" disabled>Fast API Scan (thử nghiệm, không cuộn)</button></div>
     <div class="buttons"><button id="dashboard" class="btn">Xem kết quả</button></div>
     <p class="muted" style="font-size:11px">Nếu Instagram yêu cầu xác minh hoặc dữ liệu chưa đầy đủ, hệ thống dừng và không lưu snapshot mới.</p>
   `;
@@ -407,7 +413,7 @@
     expected = { followers: null, following: null };
     updateCounters();
     running = true;
-    el('run').disabled = true; el('full').disabled = true; el('stop').disabled = false;
+    el('run').disabled = true; el('full').disabled = true; el('fast').disabled = true; el('stop').disabled = false;
     try {
       check();
       const old = await send({type:'GET_SUMMARY',owner});
@@ -420,18 +426,80 @@
       if (!closed) status(`${error?.message || 'Quét bị gián đoạn.'}\n${resultSaved ? '' : 'Dữ liệu cũ được giữ nguyên.'}`, 'warn');
     } finally {
       running = false; currentDialog = null;
-      el('run').disabled = false; el('full').disabled = false; el('stop').disabled = true;
+      el('run').disabled = false; el('full').disabled = false; el('fast').disabled = !el('fastConsent').checked; el('stop').disabled = true;
     }
   }
+  async function fastRun() {
+    if (running || !fastConsentGranted || !el('fastConsent').checked) return;
+    const adapter = window.FollowLensFastAPI;
+    if (!adapter) { status('Fast API module missing; use DOM Scan or export.', 'warn'); return; }
+    cancelled = false; resultSaved = false;
+    data.followers.clear(); data.following.clear(); updateCounters();
+    expected = {followers:null,following:null};
+    // This mode is never launched by Auto Watch. Explicit checkbox + click required.
+    running = true;
+    fastController = new AbortController();
+    el('run').disabled = el('full').disabled = el('fast').disabled = true;
+    el('fastConsent').disabled = true; el('stop').disabled = false;
+    try {
+      check();
+      const old = await send({type:'GET_SUMMARY',owner});
+      scanningFull = !old.following;
+      const types = scanningFull ? ['followers','following'] : ['followers'];
+      for (const kind of types) {
+        const target = profileTargets(kind)[0];
+        expected[kind] = countFromLink(target, kind);
+        if (!expected[kind]?.exact) throw new Error('Không thấy số ' + DIAG[kind] + ' chính xác. Dùng DOM Scan hoặc export.');
+      }
+      await send({type:'FAST_SCAN_RESERVE',owner});
+      status('Fast API: đang xác nhận account. Không mở hoặc cuộn danh sách.');
+      const userId = await adapter.resolveUserId(owner,{signal:fastController.signal});
+      for (const kind of types) {
+        const list = await adapter.scanList({
+          kind,userId,expected:expected[kind].value,signal:fastController.signal,
+          onProgress: p => status('Fast API ' + DIAG[kind] + ': ' + p.count + '/' + p.expected + ' · ' + p.pages + ' pages. Không cuộn.')
+        });
+        for (const name of list.usernames) data[kind].add(name);
+        updateCounters();
+      }
+      check();
+      await send({
+        type:'SAVE_FAST_SCAN',owner,
+        followers:[...data.followers],following:scanningFull?[...data.following]:null,
+        expectedFollowers:expected.followers.value,
+        expectedFollowing:scanningFull?expected.following.value:null,
+        reachedEndFollowers:true,reachedEndFollowing:scanningFull,full:scanningFull
+      }).then(saved => {
+        resultSaved = true;
+        status('Fast API hoàn tất, đã lưu mốc #' + saved.id + '. ' + saved.followerCount + ' Followers. Xem kết quả để đối chiếu.', 'good');
+      });
+    } catch(error) {
+      if (!closed) status(String(error?.message || 'Fast API failed.') + '\\nKhông lưu snapshot mới. Có thể dùng DOM Scan hoặc export.', 'warn');
+    } finally {
+      fastController = null; running = false;
+      el('run').disabled = el('full').disabled = false;
+      el('fastConsent').disabled = false;
+      el('fast').disabled = !el('fastConsent').checked;
+      el('stop').disabled = true;
+    }
+  }
+  // Instagram page JavaScript can see DOM nodes; programmatic events must not
+  // grant consent or start sensitive private-API requests. Real UI clicks are trusted.
+  el('fastConsent').addEventListener('change', e => {
+    if (!e.isTrusted) { e.target.checked = fastConsentGranted; return; }
+    fastConsentGranted = e.target.checked;
+    el('fast').disabled = !fastConsentGranted || running;
+  });
+  el('fast').addEventListener('click', e => { if (e.isTrusted) fastRun(); });
   el('run').addEventListener('click', () => run(false));
   el('full').addEventListener('click', () => run(true));
-  el('stop').addEventListener('click', () => { cancelled = true; status('Đang dừng. Dữ liệu cũ vẫn nguyên.', 'warn'); });
+  el('stop').addEventListener('click', () => { cancelled = true; fastController?.abort(); status('Đang dừng. Dữ liệu cũ vẫn nguyên.', 'warn'); });
   el('dashboard').addEventListener('click', () => chrome.runtime.sendMessage({ type:'OPEN_DASHBOARD', owner }));
   el('close').addEventListener('click', () => {
-    cancelled = true; closed = true; host.remove(); delete window[INSTANCE];
+    cancelled = true; fastController?.abort(); closed = true; host.remove(); delete window[INSTANCE];
   });
   el('stop').disabled = true;
-  window[INSTANCE] = { show() { host.style.display = ''; } };
-  // User clicking the extension icon is the authorization to start this one scan.
-  run(false);
+  window[INSTANCE] = { show() { host.style.display = ''; }, startDom() { return run(false); } };
+  // Manual scans require clicking a mode button; Auto Watch explicitly starts DOM only.
+  status('Chọn Smart Scan, Full Scan hoặc tự bật Fast API opt-in để quét.');
 })();

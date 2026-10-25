@@ -2,9 +2,9 @@
 
 ## Threat model
 
-**Sensitive data:** follower/following usernames and relationship history, even though many Instagram profiles are public. **Avoided assets:** passwords, session cookies, CSRF tokens, private API routes and persistent access tokens.
+**Sensitive data:** follower/following usernames and relationship history, even though many Instagram profiles are public. **Avoided assets:** passwords, extracted cookies, CSRF tokens, persistent access tokens and third-party servers.
 
-The extension only accesses Instagram DOM after the user clicks its icon (`activeTab`) or explicitly enables optional `www.instagram.com` on-visit permission. It never issues its own Instagram fetch/XHR or stores network credentials. It does not send data to external servers.
+The extension only accesses Instagram DOM after the user clicks its icon (`activeTab`) or explicitly enables optional `www.instagram.com` on-visit permission. DOM mode does not issue fetch/XHR. Experimental Fast mode performs same-origin read-only GET requests with the browser-managed session and no cookie extraction. It does not send data to external servers.
 
 ## State machine
 
@@ -15,6 +15,12 @@ IDLE -> PROFILE_VALIDATED -> FETCH_PREVIOUS -> FOLLOWERS_DIALOG
       -> SERVERLESS_EXTENSION_SAVE -> SNAPSHOT_COMMITTED
 
 Any failure -> STOP / OLD_HISTORY_PRESERVED
+
+Fast mode: PANEL -> USER_CHECKBOX -> MANUAL_CLICK -> COOLDOWN_RESERVATION
+        -> PROFILE_ID -> FOLLOWER_PAGES -> [FOLLOWING_IF_NEEDED]
+        -> EXACT_COUNT_CHECK -> SNAPSHOT_COMMIT
+
+Fast mode never runs via Auto Watch and never opens or scrolls a dialog.
 ```
 
 The label `EXACT_COUNT_CHECK` means **UI consistency**, not mathematically proven completeness. An approximate K/M count always fails the live-snapshot gate. A large (> max(5, 15%)) apparent loss also blocks automatic persistence until rechecked against exports.
@@ -32,11 +38,11 @@ Transactions write records and current Following atomically. History is append-o
 - `core.js` validates the exact count and completion flags again before storing, and normalizes usernames.
 - `db.js` persists to extension-origin IndexedDB. The content script does not own storage.
 - `dashboard.js` constructs every result row via DOM text nodes. Usernames cannot become injected HTML.
-- Optional Auto Watch is restricted to profiles whose manual scans have been saved; visit frequency is limited per profile.
+- Optional Auto Watch is restricted to saved profiles, and always triggers DOM mode, never private API mode.
 
 ## Failure handling
 
-No backend, auth bridge or retries around Instagram checkpoints. A failed scan does not persist. The extension must never attempt CAPTCHA bypass, private endpoint fallback, or bulk follow/unfollow actions. A UI change should fail safely with a visible error.
+No backend, auth bridge or retries around Instagram checkpoints. Fast API requests require a separate opt-in and are never an automatic DOM fallback. No CAPTCHA bypass, proxies, limit evasion, or follow/unfollow actions. A UI change should fail safely with a visible error.
 
 ## Known technical gaps
 

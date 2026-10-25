@@ -84,6 +84,10 @@ async def run_case(browser, previous=False, wrong_count=False, stats=False, inne
     if previous:
         await page.evaluate('window.__previous=true')
     await page.add_script_tag(content=SCRIPT)
+    # v2.1 manual modes: opening extension does not start any scan by default.
+    assert await page.evaluate("window.__sent.length") == 0
+    await page.locator('#followlens-auto-host').evaluate(
+      "(el)=>el.shadowRoot.getElementById('run').click()")
     await page.wait_for_function('''() => {const h=document.querySelector('#followlens-auto-host');return h && !h.shadowRoot.getElementById('run').disabled;}''', timeout=15000)
     status=await page.locator('#followlens-auto-host').evaluate('(el)=>el.shadowRoot.getElementById("status").textContent')
     sent=await page.evaluate('window.__sent')

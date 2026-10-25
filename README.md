@@ -8,7 +8,7 @@ FollowLens helps you answer three practical questions:
 - Which accounts disappeared from my follower list between two snapshots?
 - How did the list change over time?
 
-It works locally inside your browser. No backend, analytics, proxy, credential collection, or calls to Instagram's private API.
+It works locally inside your browser. No backend, analytics, proxy or credential collection. Experimental private API scanning is off by default and requires explicit opt-in.
 
 > **Important:** An account missing from a newer list does **not** prove it unfollowed you. Username changes, deactivation, blocks, incomplete results and changes in Instagram's UI can produce apparent losses. FollowLens reports *possible changes*, never definitive unfollow events. Scanning by scrolling Instagram's interface may violate Instagram's terms and can carry account restrictions. It is not guaranteed safe.
 
@@ -22,7 +22,9 @@ It works locally inside your browser. No backend, analytics, proxy, credential c
 - **Multi-profile isolation:** separate histories for each username.
 - **Relationship explorer:** nonmutual followers, missing/new accounts, mutuals, search, CSV export.
 - **Official data export fallback:** imports Instagram Followers/Following ZIP or JSON, labeled as unverified because exported lists can also be incomplete.
-- **No bulk follow/unfollow functionality** and no background hidden requests.
+- **Experimental Fast API Scan (v2.1):** opt-in checkbox and button, read-only Instagram REST requests, no popup or scrolling. Undocumented and may be blocked or trigger account restrictions.
+- **Fast safeguards:** 1-hour cooldown and 2 starts per 24 hours/profile, 1.25 seconds between pages, maximum 180 pages/20,000 users; no retries after any errors.
+- **No bulk follow/unfollow functionality.** Auto Watch never launches API mode.
 
 ## Installation
 
@@ -30,10 +32,12 @@ It works locally inside your browser. No backend, analytics, proxy, credential c
 2. Open `chrome://extensions`, enable **Developer mode**.
 3. Choose **Load unpacked** and select the repository's **`extension/`** directory.
 4. Open `https://www.instagram.com/YOUR_USERNAME/` while signed in.
-5. Click the FollowLens toolbar icon once to start scanning. The on-page panel shows progress and a **Stop** button.
+5. Click FollowLens to open the panel and choose Smart Scan or Full Scan for DOM scanning, or tick the risk checkbox then click Fast API Scan for no-scroll experimental scanning. Stop aborts active API calls.
 6. Open **Dashboard** from the panel to inspect relationships and timeline.
 
-The first Smart Scan opens and scrolls both Instagram lists on your behalf. Later Smart Scans scan only Followers; press **Full Scan** when you want the Following list refreshed. The scan works only when Instagram renders recognizable dialogs; layout changes can require updates. Version 2.0.3 recognizes link, button, list-item, and nested-label variants of profile statistics and uses adaptive DOM-change pacing to avoid an unnecessary 2.5-second delay on almost every scroll. The new pacing is tested against mocked Chromium lists, not benchmarked on a live Instagram account.
+The first DOM Smart Scan opens and scrolls both Instagram lists on your behalf. Later Smart Scans scan only Followers; press **Full Scan** when you want the Following list refreshed. The scan works only when Instagram renders recognizable dialogs; layout changes can require updates. Version 2.0.3 recognizes link, button, list-item, and nested-label variants of profile statistics and uses adaptive DOM-change pacing to avoid an unnecessary 2.5-second delay on almost every scroll. The new pacing is tested against mocked Chromium lists, not benchmarked on a live Instagram account.
+
+Fast API mode is always manual-only. It sends same-origin GET requests from the logged-in tab, with browser-managed cookies but without reading/storing token values. It has no Meta approval and is not guaranteed safe. Followers can be served in small pages, so a large account may require dozens of requests. Exact-count verification is not independent identity verification.
 
 To import official archives instead, open the dashboard, enter the correct username, and import exports **oldest first**. ZIP parsing remains local. Do not combine separate accounts or unrelated time ranges.
 
@@ -44,7 +48,7 @@ Chrome action (activeTab)                  Optional on-visit watch (site permiss
                |                                            |
                v                                            v
      capture.js in Instagram tab  <------------------ watch.js
-       | scrolls *visible UI*, no fetch/XHR
+       | DOM mode: scrolls visible UI, no API\n       | Fast mode: opt-in read-only same-origin API GET
        | collects usernames + exact displayed counts
        v
      background.js (validates origin + payload)
@@ -65,7 +69,7 @@ See [Architecture](docs/ARCHITECTURE.md), [Security & Privacy](SECURITY.md), and
 
 - Strict exact-count and stable scroll-end check before each live snapshot (not proof of perfect coverage).
 - Partial scans, UI breakage, login checkpoints and very large losses cannot replace healthy history.
-- No authentication tokens, Instagram cookies, private endpoints, external trackers or dependency downloads at runtime.
+- No credential or cookie extraction, third-party trackers or dependency downloads at runtime. Fast mode alone accesses undocumented Instagram endpoints.
 - Isolated data stores per username, with user-controlled deletion.
 - `npm run check` verifies syntax and 11 pure unit cases. `python tests/auto-scan-smoke.py` covers 7 mocked Chromium auto-scan scenarios; `python tests/auto-scan-smoke.py --long` adds a virtualized-list stress case and incomplete-snapshot rejection, including profile statistics rendered as clickable text rather than links.
 
@@ -92,7 +96,7 @@ No build step or `npm install` is required to load the extension. It uses Chrome
 ## Risk and limitations
 
 1. **No realtime unfollow events.** Instagram does not provide an official public personal-account API for individual follower changes. FollowLens compares point-in-time lists when scans occur.
-2. **No guarantee of account safety.** Even visible DOM auto-scrolling can be considered automated data collection by Instagram. Use your judgment and stop if challenged.
+2. **No guarantee of account safety.** DOM auto-scrolling and undocumented API data collection can violate Instagram terms. Use your judgment and stop if challenged.
 3. **Exact counts are not an integrity proof.** A changed or virtualized UI can skip members while showing the same count. Cross-check consequential changes against an official export.
 4. **Usernames are not stable IDs.** Username changes can appear as a missing user plus a new user. FollowLens does not claim identity resolution.
 5. **Small/private/unavailable profiles.** Scanning may be refused when exact counts are not exposed, a list is empty, or the dialog cannot be recognized.
